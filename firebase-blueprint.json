@@ -1,0 +1,103 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Basic user profile details",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "bio": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "email": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "email", "createdAt"]
+    },
+    "Group": {
+      "title": "Group",
+      "description": "A public or private group for chatting",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "isPrivate": { "type": "boolean" },
+        "createdBy": { "type": "string" },
+        "members": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "isPrivate", "createdBy", "members", "createdAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A text message in a group or DM",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "replyTo": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "text": { "type": "string" },
+            "senderName": { "type": "string" }
+          }
+        },
+        "forwardedFrom": { "type": "string" },
+        "reactions": { "type": "object" }
+      },
+      "required": ["text", "senderId", "senderName", "createdAt"]
+    },
+    "DMRequest": {
+      "title": "DM Request",
+      "description": "A request to start a direct message conversation",
+      "type": "object",
+      "properties": {
+        "fromUid": { "type": "string" },
+        "toUid": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["fromUid", "toUid", "status", "createdAt"]
+    },
+    "DM": {
+      "title": "Direct Message Session",
+      "description": "A private chat between two users",
+      "type": "object",
+      "properties": {
+        "members": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["members", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/groups/{groupId}": {
+      "schema": "Group",
+      "description": "Group metadata"
+    },
+    "/groups/{groupId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Messages within a group"
+    },
+    "/dmRequests/{requestId}": {
+      "schema": "DMRequest",
+      "description": "Requests for direct messaging"
+    },
+    "/dms/{dmId}": {
+      "schema": "DM",
+      "description": "Direct message sessions"
+    },
+    "/dms/{dmId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Messages within a DM"
+    }
+  }
+}

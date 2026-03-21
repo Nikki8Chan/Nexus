@@ -1,0 +1,5 @@
+{
+  "name": "Nexus Connections",
+  "description": "A text-only connections app for joining groups, finding profiles, and real-time messaging.",
+  "requestFramePermissions": []
+}

@@ -1,0 +1,154 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Fields: uid, displayName, bio, photoURL, email, createdAt
+    //
+    // Collection: groups
+    // Fields: id, name, description, isPrivate, createdBy, members, createdAt
+    //
+    // Collection: groups/{groupId}/messages
+    // Fields: text, senderId, senderName, createdAt
+    //
+    // Collection: dmRequests
+    // Fields: fromUid, toUid, status, createdAt
+    //
+    // Collection: dms
+    // Fields: members, createdAt
+    //
+    // Collection: dms/{dmId}/messages
+    // Fields: text, senderId, senderName, createdAt
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "kungfunikki24@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['uid', 'displayName', 'bio', 'photoURL', 'email', 'createdAt']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             data.displayName is string && data.displayName.size() > 0 && data.displayName.size() < 50 &&
+             data.email is string && data.email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$") &&
+             (!('bio' in data) || (data.bio is string && data.bio.size() < 500)) &&
+             (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() < 1000));
+    }
+
+    function isValidGroup(data) {
+      return hasOnlyAllowedFields(['id', 'name', 'description', 'isPrivate', 'createdBy', 'members', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.isPrivate is bool &&
+             data.createdBy is string && data.createdBy == request.auth.uid &&
+             data.members is list && data.members.size() > 0 && data.members.size() < 1000 &&
+             data.members.hasAll([request.auth.uid]);
+    }
+
+    function isValidMessage(data) {
+      return hasOnlyAllowedFields(['text', 'senderId', 'senderName', 'createdAt', 'replyTo', 'forwardedFrom', 'reactions']) &&
+             data.text is string && data.text.size() > 0 && data.text.size() < 2000 &&
+             data.senderId == request.auth.uid &&
+             (!('replyTo' in data) || (data.replyTo is map)) &&
+             (!('forwardedFrom' in data) || (data.forwardedFrom is string)) &&
+             (!('reactions' in data) || (data.reactions is map));
+    }
+
+    function isValidDMRequest(data) {
+      return hasOnlyAllowedFields(['fromUid', 'toUid', 'status', 'createdAt']) &&
+             data.fromUid == request.auth.uid &&
+             data.toUid is string && data.toUid != request.auth.uid &&
+             data.status in ['pending', 'accepted', 'rejected'];
+    }
+
+    function isValidDM(data) {
+      return hasOnlyAllowedFields(['members', 'createdAt']) &&
+             data.members is list && data.members.size() == 2 &&
+             data.members.hasAll([request.auth.uid]);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && 
+                      request.resource.data.uid == resource.data.uid &&
+                      request.resource.data.email == resource.data.email;
+    }
+
+    match /test/connection {
+      allow read: if true;
+    }
+
+    match /groups/{groupId} {
+      allow read: if isAuthenticated() && (!resource.data.isPrivate || request.auth.uid in resource.data.members);
+      allow create: if isAuthenticated() && isValidGroup(request.resource.data);
+      allow update: if isAuthenticated() && 
+                      hasOnlyAllowedFields(['id', 'name', 'description', 'isPrivate', 'createdBy', 'members', 'createdAt']) &&
+                      (
+                        request.auth.uid == resource.data.createdBy || 
+                        (
+                          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members']) &&
+                          (
+                            request.auth.uid in resource.data.members || 
+                            (!resource.data.isPrivate && request.auth.uid in request.resource.data.members)
+                          )
+                        )
+                      );
+      
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members;
+        allow create: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members && isValidMessage(request.resource.data);
+        allow update: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members && 
+                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions']);
+      }
+    }
+
+    match /dmRequests/{requestId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.fromUid || request.auth.uid == resource.data.toUid);
+      allow create: if isAuthenticated() && isValidDMRequest(request.resource.data);
+      allow update: if isAuthenticated() && (request.auth.uid == resource.data.toUid) && 
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+                      request.resource.data.status in ['accepted', 'rejected'];
+    }
+
+    match /dms/{dmId} {
+      allow read: if isAuthenticated() && request.auth.uid in resource.data.members;
+      allow create: if isAuthenticated() && isValidDM(request.resource.data);
+      
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/dms/$(dmId)).data.members;
+        allow create: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/dms/$(dmId)).data.members && isValidMessage(request.resource.data);
+        allow update: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/dms/$(dmId)).data.members && 
+                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions']);
+      }
+    }
+
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}
