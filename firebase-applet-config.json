@@ -1,10 +1,8 @@
 {
-  "projectId": "form-ai-14c4b",
-  "appId": "1:859225527423:web:ee6815b9ca89fc599f5b4a",
-  "apiKey": "AIzaSyDeNHBzbOmAS_HK59DXIK1mBz3Mf8g4_VE",
-  "authDomain": "form-ai-14c4b.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-d3141d53-0abe-46d3-ac67-cba22fb67dc0",
-  "storageBucket": "form-ai-14c4b.firebasestorage.app",
-  "messagingSenderId": "859225527423",
-  "measurementId": ""
+  "apiKey": "AIzaSyDvdXC4y5i3qtIv_2R3lQ5ZtITguUaAM-w",
+  "authDomain": "studio-26301837-80ec5.firebaseapp.com",
+  "projectId": "studio-26301837-80ec5",
+  "storageBucket": "studio-26301837-80ec5.firebasestorage.app",
+  "messagingSenderId": "293235110669",
+  "appId": "1:293235110669:web:90870c2fc7ec12b1d3b644"
 }
