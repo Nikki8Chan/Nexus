@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, updateDoc, collection, addDoc, query, where, onSnapshot } from 'firebase/firestore';
-import { db } from '../firebase';
+import { doc, getDoc, updateDoc, collection, addDoc, query, where, onSnapshot, deleteDoc } from 'firebase/firestore';
+import { deleteUser } from 'firebase/auth';
+import { auth, db } from '../firebase';
 import { useAuth } from '../App';
 import { UserProfile, DMRequest, OperationType } from '../types';
 import { handleFirestoreError } from '../utils/errorHelper';
-import { User, Mail, Calendar, Edit2, Check, MessageSquare, Send } from 'lucide-react';
+import { User, Mail, Calendar, Edit2, Check, MessageSquare, Send, Trash2, AlertTriangle } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export default function Profile() {
@@ -20,6 +21,8 @@ export default function Profile() {
   const [editBio, setEditBio] = useState('');
   const [loading, setLoading] = useState(true);
   const [dmRequestStatus, setDmRequestStatus] = useState<'none' | 'pending' | 'accepted'>('none');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -85,6 +88,30 @@ export default function Profile() {
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'dmRequests');
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+    setIsDeleting(true);
+    try {
+      // 1. Delete Firestore profile
+      await deleteDoc(doc(db, 'users', user.uid));
+      
+      // 2. Delete Auth user
+      await deleteUser(user);
+      
+      // 3. Redirect
+      navigate('/auth');
+    } catch (error: any) {
+      if (error.code === 'auth/requires-recent-login') {
+        alert('For security reasons, you must have recently signed in to delete your account. Please sign out and sign back in, then try again.');
+      } else {
+        handleFirestoreError(error, OperationType.DELETE, `users/${user.uid}`);
+      }
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
     }
   };
 
@@ -191,6 +218,51 @@ export default function Profile() {
               </div>
             </div>
           </div>
+
+          {isMe && (
+            <div className="mt-12 pt-8 border-t border-zinc-100">
+              <div className="bg-red-50 rounded-2xl p-6 border border-red-100">
+                <div className="flex items-start gap-4">
+                  <div className="p-2 bg-red-100 rounded-xl text-red-600">
+                    <AlertTriangle size={24} />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-lg font-bold text-red-900">Danger Zone</h3>
+                    <p className="text-red-700 mt-1 mb-4 text-sm">
+                      Once you delete your account, there is no going back. Please be certain.
+                    </p>
+                    
+                    {!showDeleteConfirm ? (
+                      <button
+                        onClick={() => setShowDeleteConfirm(true)}
+                        className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors"
+                      >
+                        <Trash2 size={18} />
+                        <span>Delete Account</span>
+                      </button>
+                    ) : (
+                      <div className="flex flex-wrap gap-3">
+                        <button
+                          onClick={handleDeleteAccount}
+                          disabled={isDeleting}
+                          className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors disabled:opacity-50"
+                        >
+                          {isDeleting ? 'Deleting...' : 'Yes, Delete My Account'}
+                        </button>
+                        <button
+                          onClick={() => setShowDeleteConfirm(false)}
+                          disabled={isDeleting}
+                          className="px-4 py-2 bg-white text-zinc-600 border border-zinc-200 rounded-xl font-semibold hover:bg-zinc-50 transition-colors disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </motion.div>
     </div>
