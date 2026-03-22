@@ -6,7 +6,7 @@ import { auth, db } from '../firebase';
 import { useAuth } from '../App';
 import { UserProfile, DMRequest, OperationType } from '../types';
 import { handleFirestoreError } from '../utils/errorHelper';
-import { User, Mail, Calendar, Edit2, Check, MessageSquare, Send, Trash2, AlertTriangle } from 'lucide-react';
+import { User, Mail, Calendar, Edit2, Check, MessageSquare, Send, Trash2, AlertTriangle, LogOut } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export default function Profile() {
@@ -115,6 +115,15 @@ export default function Profile() {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await auth.signOut();
+      navigate('/auth');
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
+
   if (loading) return <div className="p-8 text-center text-zinc-500">Loading profile...</div>;
   if (!profile) return <div className="p-8 text-center text-zinc-500">Profile not found.</div>;
 
@@ -138,15 +147,24 @@ export default function Profile() {
               </div>
             </div>
             {isMe ? (
-              <button
-                onClick={() => isEditing ? handleUpdateProfile() : setIsEditing(true)}
-                className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-semibold transition-all ${
-                  isEditing ? 'bg-zinc-900 text-white' : 'bg-zinc-100 text-zinc-900 hover:bg-zinc-200'
-                }`}
-              >
-                {isEditing ? <Check size={18} /> : <Edit2 size={18} />}
-                <span>{isEditing ? 'Save Profile' : 'Edit Profile'}</span>
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-50 transition-all"
+                >
+                  <LogOut size={18} />
+                  <span className="hidden sm:inline">Logout</span>
+                </button>
+                <button
+                  onClick={() => isEditing ? handleUpdateProfile() : setIsEditing(true)}
+                  className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-semibold transition-all ${
+                    isEditing ? 'bg-zinc-900 text-white' : 'bg-zinc-100 text-zinc-900 hover:bg-zinc-200'
+                  }`}
+                >
+                  {isEditing ? <Check size={18} /> : <Edit2 size={18} />}
+                  <span>{isEditing ? 'Save Profile' : 'Edit Profile'}</span>
+                </button>
+              </div>
             ) : (
               <button
                 onClick={handleRequestDM}

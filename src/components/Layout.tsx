@@ -49,6 +49,13 @@ export default function Layout() {
             </Link>
           ))}
 
+          <button
+            onClick={handleLogout}
+            className="flex md:hidden items-center gap-3 px-4 py-3 rounded-xl text-red-500 hover:bg-red-50 transition-all"
+          >
+            <LogOut size={20} />
+          </button>
+
           <div className="mt-auto hidden md:block px-2">
             <div className="flex items-center gap-3 p-2 mb-4 bg-zinc-50 rounded-xl border border-zinc-100">
               <div className="w-10 h-10 bg-zinc-200 rounded-full overflow-hidden">

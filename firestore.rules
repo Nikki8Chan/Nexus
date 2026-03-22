@@ -11,6 +11,12 @@ service cloud.firestore {
     // Collection: groups
     // Fields: id, name, description, isPrivate, createdBy, members, createdAt
     //
+    // Collection: groupPasscodes
+    // Fields: passcode, groupId, createdBy
+    //
+    // Collection: groupJoins
+    // Fields: userId, groupId, passcode, createdAt
+    //
     // Collection: groups/{groupId}/messages
     // Fields: text, senderId, senderName, createdAt
     //
@@ -56,12 +62,26 @@ service cloud.firestore {
     }
 
     function isValidGroup(data) {
-      return hasOnlyAllowedFields(['id', 'name', 'description', 'isPrivate', 'createdBy', 'members', 'createdAt']) &&
-             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+      return data.name is string && data.name.size() > 0 &&
              data.isPrivate is bool &&
-             data.createdBy is string && data.createdBy == request.auth.uid &&
-             data.members is list && data.members.size() > 0 && data.members.size() < 1000 &&
-             data.members.hasAll([request.auth.uid]);
+             data.createdBy == request.auth.uid &&
+             data.members is list && data.members.size() > 0 &&
+             request.auth.uid in data.members;
+    }
+
+    function isValidPasscode(data) {
+      return hasOnlyAllowedFields(['passcode', 'groupId', 'createdBy']) &&
+             data.passcode is string && data.passcode.matches("^\\d{6}$") &&
+             data.groupId is string &&
+             data.createdBy == request.auth.uid;
+    }
+
+    function isValidJoinRequest(data) {
+      return hasOnlyAllowedFields(['userId', 'groupId', 'passcode', 'createdAt']) &&
+             data.userId == request.auth.uid &&
+             data.groupId is string &&
+             data.passcode is string && data.passcode.matches("^\\d{6}$") &&
+             data.passcode == get(/databases/$(database)/documents/groupPasscodes/$(data.groupId)).data.passcode;
     }
 
     function isValidMessage(data) {
@@ -98,32 +118,55 @@ service cloud.firestore {
                       request.resource.data.email == resource.data.email;
     }
 
+    match /groups {
+      allow list: if true;
+      match /{groupId} {
+        allow get: if true;
+        allow create: if request.auth != null && isValidGroup(request.resource.data);
+        allow update: if request.auth != null && 
+                        (
+                          request.auth.uid == resource.data.createdBy || 
+                          (
+                            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members']) &&
+                            (
+                              request.auth.uid in resource.data.members || 
+                              (!resource.data.isPrivate && request.auth.uid in request.resource.data.members) ||
+                              (resource.data.isPrivate && exists(/databases/$(database)/documents/groupJoins/$(request.auth.uid + '_' + groupId)))
+                            )
+                          )
+                        );
+        allow delete: if request.auth != null && request.auth.uid == resource.data.createdBy;
+        
+        match /messages/{messageId} {
+          allow read: if request.auth != null && (
+            request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members
+          );
+          allow create: if request.auth != null && (
+            request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members
+          ) && isValidMessage(request.resource.data);
+          allow update: if request.auth != null && (
+            request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members
+          ) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions']);
+        }
+      }
+    }
+
     match /test/connection {
       allow read: if true;
     }
 
-    match /groups/{groupId} {
-      allow read: if isAuthenticated() && (!resource.data.isPrivate || request.auth.uid in resource.data.members);
-      allow create: if isAuthenticated() && isValidGroup(request.resource.data);
-      allow update: if isAuthenticated() && 
-                      hasOnlyAllowedFields(['id', 'name', 'description', 'isPrivate', 'createdBy', 'members', 'createdAt']) &&
-                      (
-                        request.auth.uid == resource.data.createdBy || 
-                        (
-                          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members']) &&
-                          (
-                            request.auth.uid in resource.data.members || 
-                            (!resource.data.isPrivate && request.auth.uid in request.resource.data.members)
-                          )
-                        )
-                      );
-      
-      match /messages/{messageId} {
-        allow read: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members;
-        allow create: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members && isValidMessage(request.resource.data);
-        allow update: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members && 
-                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions']);
-      }
+    match /groupPasscodes/{groupId} {
+      allow read, write: if isAuthenticated() && (
+        (resource == null && request.resource.data.createdBy == request.auth.uid) ||
+        (resource != null && resource.data.createdBy == request.auth.uid)
+      );
+    }
+
+    match /groupJoins/{joinId} {
+      allow create: if isAuthenticated() && 
+                      joinId == request.auth.uid + '_' + request.resource.data.groupId &&
+                      isValidJoinRequest(request.resource.data);
+      allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
     }
 
     match /dmRequests/{requestId} {

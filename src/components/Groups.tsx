@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, arrayUnion } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, arrayUnion, setDoc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../App';
 import { Group, OperationType } from '../types';
 import { handleFirestoreError } from '../utils/errorHelper';
-import { Plus, Search, Users, Lock, ArrowRight } from 'lucide-react';
+import { Plus, Search, Users, Lock, ArrowRight, ShieldCheck, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 
@@ -15,11 +15,19 @@ export default function Groups() {
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupDesc, setNewGroupDesc] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
+  const [newPasscode, setNewPasscode] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  
+  const [joiningGroup, setJoiningGroup] = useState<Group | null>(null);
+  const [joinPasscode, setJoinPasscode] = useState('');
+  const [joinError, setJoinError] = useState('');
+  const [isJoining, setIsJoining] = useState(false);
+
   const navigate = useNavigate();
 
   useEffect(() => {
-    const q = query(collection(db, 'groups'), where('isPrivate', '==', false));
+    // Fetch all groups so people can "find" them
+    const q = query(collection(db, 'groups'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const groupsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Group));
       setGroups(groupsData);
@@ -32,6 +40,10 @@ export default function Groups() {
   const handleCreateGroup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newGroupName.trim() || !user) return;
+    if (isPrivate && newPasscode.length !== 6) {
+      alert('Private groups require a 6-digit passcode.');
+      return;
+    }
 
     try {
       const groupData = {
@@ -42,11 +54,23 @@ export default function Groups() {
         members: [user.uid],
         createdAt: new Date().toISOString(),
       };
+      
       const docRef = await addDoc(collection(db, 'groups'), groupData);
+      
+      if (isPrivate) {
+        // Store passcode in a separate collection for security
+        await setDoc(doc(db, 'groupPasscodes', docRef.id), {
+          passcode: newPasscode,
+          groupId: docRef.id,
+          createdBy: user.uid
+        });
+      }
+
       setShowCreate(false);
       setNewGroupName('');
       setNewGroupDesc('');
       setIsPrivate(false);
+      setNewPasscode('');
       navigate(`/groups/${docRef.id}`);
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'groups');
@@ -60,6 +84,13 @@ export default function Groups() {
       return;
     }
 
+    if (group.isPrivate) {
+      setJoiningGroup(group);
+      setJoinPasscode('');
+      setJoinError('');
+      return;
+    }
+
     try {
       await updateDoc(doc(db, 'groups', group.id), {
         members: arrayUnion(user.uid)
@@ -67,6 +98,39 @@ export default function Groups() {
       navigate(`/groups/${group.id}`);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `groups/${group.id}`);
+    }
+  };
+
+  const handleConfirmJoin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !joiningGroup || joinPasscode.length !== 6) return;
+
+    setIsJoining(true);
+    setJoinError('');
+
+    try {
+      // 1. Create a join request that is validated by security rules against the passcode
+      const joinId = `${user.uid}_${joiningGroup.id}`;
+      await setDoc(doc(db, 'groupJoins', joinId), {
+        userId: user.uid,
+        groupId: joiningGroup.id,
+        passcode: joinPasscode,
+        createdAt: new Date().toISOString()
+      });
+
+      // 2. If the above succeeded, the passcode was correct (per rules)
+      // Now add the user to the group
+      await updateDoc(doc(db, 'groups', joiningGroup.id), {
+        members: arrayUnion(user.uid)
+      });
+
+      setJoiningGroup(null);
+      navigate(`/groups/${joiningGroup.id}`);
+    } catch (error: any) {
+      setJoinError('Incorrect passcode. Please try again.');
+      console.error("Join error:", error);
+    } finally {
+      setIsJoining(false);
     }
   };
 
@@ -180,6 +244,28 @@ export default function Groups() {
                     Make this group private
                   </label>
                 </div>
+
+                {isPrivate && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    className="space-y-2"
+                  >
+                    <label className="block text-sm font-medium text-zinc-700 mb-1">6-Digit Passcode</label>
+                    <input
+                      required
+                      type="text"
+                      maxLength={6}
+                      pattern="\d{6}"
+                      value={newPasscode}
+                      onChange={(e) => setNewPasscode(e.target.value.replace(/\D/g, ''))}
+                      className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-900/10 font-mono tracking-widest text-center text-xl"
+                      placeholder="000000"
+                    />
+                    <p className="text-xs text-zinc-500">Users will need this code to join.</p>
+                  </motion.div>
+                )}
+
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"
@@ -193,6 +279,61 @@ export default function Groups() {
                     className="flex-1 px-6 py-3 bg-zinc-900 text-white rounded-xl font-semibold hover:bg-zinc-800 transition-all shadow-sm"
                   >
                     Create Group
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {joiningGroup && (
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-8 text-center"
+            >
+              <div className="w-16 h-16 bg-zinc-100 rounded-2xl flex items-center justify-center mx-auto mb-6 text-zinc-900">
+                <ShieldCheck size={32} />
+              </div>
+              <h2 className="text-2xl font-bold text-zinc-900 mb-2">Private Group</h2>
+              <p className="text-zinc-500 mb-6">Enter the 6-digit passcode to join <b>{joiningGroup.name}</b></p>
+              
+              <form onSubmit={handleConfirmJoin} className="space-y-6">
+                <div>
+                  <input
+                    required
+                    autoFocus
+                    type="text"
+                    maxLength={6}
+                    pattern="\d{6}"
+                    value={joinPasscode}
+                    onChange={(e) => setJoinPasscode(e.target.value.replace(/\D/g, ''))}
+                    className="w-full px-4 py-4 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-zinc-900/10 font-mono tracking-[0.5em] text-center text-3xl"
+                    placeholder="••••••"
+                  />
+                  {joinError && (
+                    <p className="text-red-500 text-sm mt-3">{joinError}</p>
+                  )}
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setJoiningGroup(null)}
+                    className="flex-1 px-6 py-3 border border-zinc-200 rounded-xl font-semibold text-zinc-600 hover:bg-zinc-50 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isJoining || joinPasscode.length !== 6}
+                    className="flex-1 px-6 py-3 bg-zinc-900 text-white rounded-xl font-semibold hover:bg-zinc-800 transition-all shadow-sm disabled:opacity-50"
+                  >
+                    {isJoining ? 'Joining...' : 'Join Group'}
                   </button>
                 </div>
               </form>

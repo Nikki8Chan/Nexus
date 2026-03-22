@@ -12,6 +12,7 @@ export interface Group {
   name: string;
   description: string;
   isPrivate: boolean;
+  passcode?: string; // Only present for owner or when joining
   createdBy: string;
   members: string[];
   createdAt: string;

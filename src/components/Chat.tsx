@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { collection, query, orderBy, onSnapshot, addDoc, doc, getDoc, limit, updateDoc, where, getDocs } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, doc, getDoc, limit, updateDoc, where, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../App';
 import { Message, Group, DM, OperationType } from '../types';
 import { handleFirestoreError } from '../utils/errorHelper';
-import { Send, ArrowLeft, Info, User, Shield, Reply, Forward, Smile, X } from 'lucide-react';
+import { Send, ArrowLeft, Info, User, Shield, Reply, Forward, Smile, X, Settings, Lock, Eye, EyeOff, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface ChatProps {
@@ -28,9 +28,15 @@ export default function Chat({ type }: ChatProps) {
   const [availableDestinations, setAvailableDestinations] = useState<{id: string, name: string, type: 'group' | 'dm'}[]>([]);
   const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [groupPasscode, setGroupPasscode] = useState<string>('');
+  const [showPasscode, setShowPasscode] = useState(false);
+  const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+
+  const isOwner = type === 'group' && info?.createdBy === user?.uid;
 
   useEffect(() => {
     if (!id) return;
@@ -40,7 +46,16 @@ export default function Chat({ type }: ChatProps) {
         const docRef = doc(db, type === 'group' ? 'groups' : 'dms', id);
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
-          setInfo({ id: docSnap.id, ...docSnap.data() });
+          const data = { id: docSnap.id, ...docSnap.data() } as any;
+          setInfo(data);
+          
+          // If owner and private group, fetch passcode
+          if (type === 'group' && data.createdBy === user?.uid && data.isPrivate) {
+            const passcodeDoc = await getDoc(doc(db, 'groupPasscodes', id));
+            if (passcodeDoc.exists()) {
+              setGroupPasscode(passcodeDoc.data().passcode);
+            }
+          }
         } else {
           navigate('/');
         }
@@ -197,6 +212,53 @@ export default function Chat({ type }: ChatProps) {
     }
   };
 
+  const handleUpdateGroupSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!id || !isOwner || isUpdatingSettings) return;
+
+    setIsUpdatingSettings(true);
+    try {
+      // Update group metadata
+      await updateDoc(doc(db, 'groups', id), {
+        name: info.name,
+        description: info.description,
+        isPrivate: info.isPrivate
+      });
+
+      // Update passcode if private
+      if (info.isPrivate && groupPasscode.length === 6) {
+        await setDoc(doc(db, 'groupPasscodes', id), {
+          passcode: groupPasscode,
+          groupId: id,
+          createdBy: user.uid
+        }, { merge: true });
+      }
+
+      setShowSettings(false);
+    } catch (error) {
+      console.error('Error updating group settings:', error);
+      alert('Failed to update settings. Make sure the passcode is 6 digits.');
+    } finally {
+      setIsUpdatingSettings(false);
+    }
+  };
+
+  const handleDeleteGroup = async () => {
+    if (!id || !isOwner) return;
+    if (!window.confirm('Are you sure you want to delete this group? This action cannot be undone.')) return;
+
+    try {
+      await deleteDoc(doc(db, 'groups', id));
+      if (info.isPrivate) {
+        await deleteDoc(doc(db, 'groupPasscodes', id));
+      }
+      navigate('/');
+    } catch (error) {
+      console.error('Error deleting group:', error);
+      alert('Failed to delete group. You might not have permission.');
+    }
+  };
+
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -225,9 +287,20 @@ export default function Chat({ type }: ChatProps) {
             </p>
           </div>
         </div>
-        <button className="p-2 hover:bg-zinc-100 rounded-full text-zinc-400">
-          <Info size={20} />
-        </button>
+        <div className="flex items-center gap-1">
+          {isOwner && (
+            <button 
+              onClick={() => setShowSettings(true)}
+              className="p-2 hover:bg-zinc-100 rounded-full text-zinc-600"
+              title="Group Settings"
+            >
+              <Settings size={20} />
+            </button>
+          )}
+          <button className="p-2 hover:bg-zinc-100 rounded-full text-zinc-400">
+            <Info size={20} />
+          </button>
+        </div>
       </header>
 
       {/* Messages */}
@@ -466,6 +539,127 @@ export default function Chat({ type }: ChatProps) {
                   </button>
                 ))}
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Group Settings Modal */}
+      <AnimatePresence>
+        {showSettings && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
+                <h2 className="text-xl font-bold text-zinc-900">Group Settings</h2>
+                <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-zinc-100 rounded-full">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdateGroupSettings} className="p-6 space-y-6">
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 mb-1">Group Name</label>
+                    <input
+                      type="text"
+                      value={info.name}
+                      onChange={(e) => setInfo({ ...info, name: e.target.value })}
+                      className="w-full px-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-zinc-900/10 focus:outline-none"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 mb-1">Description</label>
+                    <textarea
+                      value={info.description}
+                      onChange={(e) => setInfo({ ...info, description: e.target.value })}
+                      className="w-full px-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-zinc-900/10 focus:outline-none h-24 resize-none"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 bg-zinc-50 rounded-2xl border border-zinc-100">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-zinc-900 shadow-sm">
+                        <Lock size={20} />
+                      </div>
+                      <div>
+                        <div className="font-bold text-sm">Private Group</div>
+                        <div className="text-xs text-zinc-500">Requires passcode to join</div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setInfo({ ...info, isPrivate: !info.isPrivate })}
+                      className={`w-12 h-6 rounded-full transition-all relative ${info.isPrivate ? 'bg-zinc-900' : 'bg-zinc-200'}`}
+                    >
+                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${info.isPrivate ? 'right-1' : 'left-1'}`} />
+                    </button>
+                  </div>
+
+                  {info.isPrivate && (
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-zinc-700">6-Digit Passcode</label>
+                      <div className="relative">
+                        <input
+                          type={showPasscode ? "text" : "password"}
+                          maxLength={6}
+                          value={groupPasscode}
+                          onChange={(e) => setGroupPasscode(e.target.value.replace(/\D/g, ''))}
+                          className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl font-mono text-lg tracking-widest focus:ring-2 focus:ring-zinc-900/10 focus:outline-none"
+                          placeholder="000000"
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPasscode(!showPasscode)}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
+                        >
+                          {showPasscode ? <EyeOff size={20} /> : <Eye size={20} />}
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-zinc-500">Only you can see and change this passcode.</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowSettings(false)}
+                    className="flex-1 px-4 py-3 border border-zinc-200 rounded-xl font-bold text-zinc-600 hover:bg-zinc-50 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isUpdatingSettings || (info.isPrivate && groupPasscode.length !== 6)}
+                    className="flex-1 px-4 py-3 bg-zinc-900 text-white rounded-xl font-bold hover:bg-zinc-800 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                  >
+                    {isUpdatingSettings ? (
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : 'Save Changes'}
+                  </button>
+                </div>
+
+                <div className="pt-6 border-t border-zinc-100">
+                  <button
+                    type="button"
+                    onClick={handleDeleteGroup}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-50 text-red-600 rounded-xl font-bold hover:bg-red-100 transition-all"
+                  >
+                    <Trash2 size={18} />
+                    Delete Group
+                  </button>
+                  <p className="text-[10px] text-zinc-400 text-center mt-2">
+                    This will permanently delete the group and all its messages.
+                  </p>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}

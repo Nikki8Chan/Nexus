@@ -72,6 +72,29 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["members", "createdAt"]
+    },
+    "GroupPasscode": {
+      "title": "Group Passcode",
+      "description": "Secret passcode for a private group",
+      "type": "object",
+      "properties": {
+        "passcode": { "type": "string" },
+        "groupId": { "type": "string" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["passcode", "groupId", "createdBy"]
+    },
+    "GroupJoin": {
+      "title": "Group Join Request",
+      "description": "A validated join request for a private group",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "groupId": { "type": "string" },
+        "passcode": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "groupId", "passcode", "createdAt"]
     }
   },
   "firestore": {
@@ -82,6 +105,14 @@
     "/groups/{groupId}": {
       "schema": "Group",
       "description": "Group metadata"
+    },
+    "/groupPasscodes/{groupId}": {
+      "schema": "GroupPasscode",
+      "description": "Private group passcodes"
+    },
+    "/groupJoins/{joinId}": {
+      "schema": "GroupJoin",
+      "description": "Validated join requests"
     },
     "/groups/{groupId}/messages/{messageId}": {
       "schema": "Message",
