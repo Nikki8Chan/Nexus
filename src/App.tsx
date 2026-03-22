@@ -63,8 +63,9 @@ export default function App() {
       try {
         await getDocFromServer(doc(db, 'test', 'connection'));
       } catch (error) {
+        console.error("Firestore connection test failed:", error);
         if (error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration.");
+          console.error("Please check your Firebase configuration. This often means Firestore is not enabled or the project ID is incorrect.");
         }
       }
     };
